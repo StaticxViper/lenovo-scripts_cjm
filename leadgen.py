@@ -17,14 +17,17 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # -----------------------------
 # Configurable constants
 # -----------------------------
-GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY"
-SEARCH_RADIUS = 5000  # meters
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+SEARCH_RADIUS = 50000  # meters
 KEYWORDS = ["landscaping", "house cleaning"]
-LOCATION = "LATITUDE,LONGITUDE"  # placeholder (lat,lng)
+LOCATION = '39.9526,-75.1652' # "39.8027,-74.9838"  # placeholder (lat,lng)
 MAX_WORKERS = 12
 PLACES_SLEEP = 2  # seconds between place detail / next_page_token attempts
 CSV_OUTPUT = "leads_output.csv"
@@ -52,6 +55,12 @@ def get_places(location, radius, keywords, api_key):
         while True:
             try:
                 r = requests.get(url, params=params, timeout=10)
+                data = r.json()
+
+                print("HTTP Status Code:", r.status_code)
+                print("Places Status:", data.get("status"))
+                print("Error Message:", data.get("error_message"))
+                print("Results Count:", len(data.get("results", [])))
             except Exception as e:
                 logger.warning("Nearby search failed for keyword %s: %s", kw, e)
                 break
