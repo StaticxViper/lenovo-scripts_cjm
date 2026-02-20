@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 import os
 from dotenv import load_dotenv
+from lead_filter import load_existing_place_ids, is_new_place
 
 load_dotenv()
 
@@ -31,6 +32,7 @@ LOCATION = '39.9526,-75.1652' # "39.8027,-74.9838"  # placeholder (lat,lng)
 MAX_WORKERS = 12
 PLACES_SLEEP = 2  # seconds between place detail / next_page_token attempts
 CSV_OUTPUT = "leads_output.csv"
+existing_place_ids = load_existing_place_ids(CSV_OUTPUT)
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -57,10 +59,12 @@ def get_places(location, radius, keywords, api_key):
                 r = requests.get(url, params=params, timeout=10)
                 data = r.json()
 
-                print("HTTP Status Code:", r.status_code)
-                print("Places Status:", data.get("status"))
-                print("Error Message:", data.get("error_message"))
-                print("Results Count:", len(data.get("results", [])))
+                # DEBUG LOGS
+                logger.warning("HTTP Status Code: %s", r.status_code)
+                logger.warning("Places Status: %s", data.get("status"))
+                logger.warning("Error Message: %s", data.get("error_message"))
+                logger.warning("Results Count: %d", len(data.get("results", [])))
+
             except Exception as e:
                 logger.warning("Nearby search failed for keyword %s: %s", kw, e)
                 break
@@ -226,7 +230,7 @@ def score_lead(has_website, https, has_viewport, html_length, emails, has_cta, r
     return score
 
 
-def process_businesses(businesses, api_key):
+def process_businesses(businesses, api_key, existing_ids):
     """Given list of basic business entries, enrich with place details and analyze websites concurrently."""
     enriched = []
     logger.info("Fetching place details for %d businesses", len(businesses))
@@ -279,7 +283,12 @@ def process_businesses(businesses, api_key):
     # Build final rows
     rows = []
     for b in businesses_unique:
-        a = analyses.get(b.get("place_id"), {})
+        place_id = b.get("place_id")
+        if not place_id:
+            continue
+        if not is_new_place(place_id, existing_ids):
+            continue  # skip duplicates across runs and within-run
+        a = analyses.get(place_id, {})
         has_website = bool(b.get("website"))
         lead_score = score_lead(has_website, a.get("https", False), a.get("has_viewport", False), a.get("html_length", 0), a.get("emails", []), a.get("has_cta", False), b.get("rating"), b.get("user_ratings_total"))
         row = {
@@ -335,7 +344,7 @@ def main():
     if not places:
         logger.info("No places found; exiting")
         return
-    rows = process_businesses(places, GOOGLE_API_KEY)
+    rows = process_businesses(places, GOOGLE_API_KEY, existing_place_ids)
     save_results(rows, CSV_OUTPUT)
 
 
